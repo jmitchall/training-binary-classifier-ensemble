@@ -3,7 +3,7 @@ import pandas as pd
 from scipy import sparse
 from sklearn.decomposition import PCA
 from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -556,7 +556,13 @@ def get_prediction_score(x_test_data, y_test_data, pipe_model):
                     9) Use data augmentation: Data augmentation techniques can help increase the amount of training data available to the model, which can improve its performance. This is the process of generating additional training data by applying transformations to the existing data
                     10) Use data balancing techniques: (e.g., there are significantly more negative cases than positive cases) Data balancing techniques can help address the issue of imbalanced datasets by either oversampling the minority class or undersampling the majority class to create a more balanced dataset. 
                     """)
-    return y_prediction, pipe_model.decision_function(x_test_data.values)
+
+    #check if pipeline has decision function
+    if hasattr(pipe_model, 'decision_function'):
+        y_score = pipe_model.decision_function(x_test_data.values)
+    else:
+        y_score = pipe_model.predict_proba(x_test_data.values)[:, 1]
+    return y_prediction, y_score
 
 
 def detect_imbalanced_labels(y_data, imbalance_threshold=0.15):
@@ -655,7 +661,7 @@ def assign_x_y_pipe_to_dict(model_map, model_key, x_data, y_data, model_predicto
     model_map[model_key] = [x_data, y_data, pipe]
 
 
-def get_range_PCA_components(training_data, start_at_components =83):
+def get_range_PCA_components(training_data, start_at_components=83):
     """
     Principal Component Analysis requires a parameter 'n_components' to be optimised.
     'pca_n_components' signifies the number of components to keep after reducing the dimension.
@@ -665,11 +671,11 @@ def get_range_PCA_components(training_data, start_at_components =83):
      :return: a list of integers starting from 1 up to the number of columns in the training_data DataFrame
     """
     if start_at_components > training_data.shape[1]:
-        start_at_components = training_data.shape[1]     # start at the number of columns in the training data
+        start_at_components = training_data.shape[1]  # start at the number of columns in the training data
     return list(range(start_at_components, training_data.shape[1] + 1, 1))
 
 
-def get_xgb_learning_rates():
+def get_xgb_learning_rates(start_rate=0.01, end_rate=0.1, num_rates=5):
     """
     This parameter controls the step size at which the model’s weights are updated during training.
     Get the range of values for the learning_rate parameter for the XGBoost model
@@ -680,10 +686,13 @@ def get_xgb_learning_rates():
     :return:  a list of floats representing the learning rate values to be used for the XGBoost model hyperparameter
     tuning
     """
-    return [0.1, 0.01, 0.001, 0.0001]
+    # return a Logarithmically spaced array between the start and end rates
+    return np.logspace(np.log10(start_rate), np.log10(end_rate), num_rates).tolist()
 
 
-def get_xgb_max_depths(min_depth=3, max_depth=11):
+
+
+def get_xgb_max_depths(min_depth=3, max_depth=50, num_depths=15):
     """
     Get the range of values for the max_depth parameter for the XGBoost model
     these parameters control the complexity of the individual trees in the XGBoost model.
@@ -693,9 +702,10 @@ def get_xgb_max_depths(min_depth=3, max_depth=11):
     the model may underfit the training data.
     :param min_depth:
     :param max_depth:
+    :param num_depths:
     :return:
     """
-    return list(range(min_depth, max_depth+1, 1))
+    return np.linspace(min_depth, max_depth, num_depths).astype(int).tolist()
 
 
 def get_xgb_min_child_weights(min_child_weight=1, max_child_weight=7, step=3):
@@ -710,10 +720,10 @@ def get_xgb_min_child_weights(min_child_weight=1, max_child_weight=7, step=3):
     :return: a list of integers representing the min_child_weight values to be used for the XGBoost model
     hyperparameter tuning
     """
-    return list(range(min_child_weight, max_child_weight+1, step))
+    return list(range(min_child_weight, max_child_weight + 1, step))
 
 
-def get_xgb_sub_samples(min_sub_sample=.5, max_sub_sample=1, sub_step=.5):
+def get_xgb_sub_samples(min_sub_sample=.5, max_sub_sample=1, num_sub_samples=5):
     """
     subsample defines the fraction of training instances to be used for each tree.
     Get the range of values for the subsample parameter for the XGBoost model
@@ -722,13 +732,12 @@ def get_xgb_sub_samples(min_sub_sample=.5, max_sub_sample=1, sub_step=.5):
     underfitting.
     :param min_sub_sample: starting value for the subsample parameter
     :param max_sub_sample: ending value for the subsample parameter
-    :param sub_step: the step size to use when generating the range of values for the subsample parameter
+    :param num_sub_samples: the number of values to generate for the subsample parameter
     :return: a list of floats representing the subsample values to be used for the XGBoost model hyperparameter tuning
     """
-    return np.arange(min_sub_sample, max_sub_sample+.1, sub_step).tolist()
+    return np.linspace(min_sub_sample, max_sub_sample, num_sub_samples).tolist()
 
-
-def get_xgb_col_sub_samples(min_col_sample_by_tree=.5, max_col_sample_by_tree=1, col_sample_step=.5):
+def get_xgb_col_sub_samples(min_col_sample_by_tree=.5, max_col_sample_by_tree=1, num_col_samples=5):
     """
     colsample_bytree determines the fraction of features (columns) to be considered when constructing each tree
     Get the range of values for the colsample_bytree parameter for the XGBoost model
@@ -737,13 +746,13 @@ def get_xgb_col_sub_samples(min_col_sample_by_tree=.5, max_col_sample_by_tree=1,
     underfitting.
     :param min_col_sample_by_tree: starting value for the colsample_bytree parameter
     :param max_col_sample_by_tree: ending value for the colsample_bytree parameter
-    :param col_sample_step: the step size to use when generating the range of values for the colsample_bytree parameter
+    :param num_col_samples: the number of values to generate for the colsample_bytree parameter
     :return: a list of floats representing the colsample_bytree values to be used for the XGBoost model hyperparameter tuning
     """
-    return np.arange(min_col_sample_by_tree, max_col_sample_by_tree+.1, col_sample_step).tolist()
+    return np.linspace(min_col_sample_by_tree, max_col_sample_by_tree, num_col_samples).tolist()
 
 
-def get_xgb_weak_estimator_counts(min_weak_estimators=500, max_weak_estimators=1000, weak_step=500):
+def get_xgb_weak_estimator_counts(min_weak_estimators=50, max_weak_estimators=100, number_of_estimators=5):
     """
     Get the range of values for the n_estimators parameter for the XGBoost model
     This parameter determines the number of trees in the model. Increasing n_estimators generally improves performance,
@@ -753,10 +762,13 @@ def get_xgb_weak_estimator_counts(min_weak_estimators=500, max_weak_estimators=1
     while lower values may lead to underfitting.
     :param min_weak_estimators: starting value for the n_estimators parameter
     :param max_weak_estimators: ending value for the n_estimators parameter
-    :param weak_step: the step size to use when generating the range of values for the n_estimators parameter
+    :param number_of_estimators: the number of values to generate for the n_estimators parameter
     :return: a list of integers representing the n_estimators values to be used for the XGBoost model hyperparameter tuning
     """
-    return list(range(min_weak_estimators, max_weak_estimators+1, weak_step))
+    #create list between the min and max values uniformly distributed with the number of estimators
+    return np.linspace(min_weak_estimators, max_weak_estimators, number_of_estimators).astype(int).tolist()
+
+
 
 def find_pipe_with_best_hyper_parameters_grid_search_cross_validation(x_numeric_df, y_data_labels,
                                                                       cross_validation_folds=5, cpu_cores=-1):
@@ -787,6 +799,7 @@ def find_pipe_with_best_hyper_parameters_grid_search_cross_validation(x_numeric_
     l_rate = get_xgb_learning_rates()
     sub_sample = get_xgb_sub_samples()
     col_sample_by_tree = get_xgb_col_sub_samples()
+    search_iterations = 20
 
     # Get Range for n_estimators
     n_weak_estimators = get_xgb_weak_estimator_counts()
@@ -798,9 +811,13 @@ def find_pipe_with_best_hyper_parameters_grid_search_cross_validation(x_numeric_
     assign_x_y_pipe_to_dict(vector_dict, f'logit_model model using {x_numeric_df.columns} including PCA',
                             x_numeric_df, y_data_labels,
                             get_xgboost_model(is_imbalance_detected, class_labels=y_data_labels,
-                                              n_estimators=n_weak_estimators, max_depth=m_depth, learning_rate=l_rate,
-                                              subsample=sub_sample, colsample_bytree=col_sample_by_tree,
-                                              min_child_weight=min_child_weight),
+                                              n_estimators=n_weak_estimators,
+                                              max_depth=m_depth,
+                                              learning_rate=l_rate
+                                              ,subsample=sub_sample
+                                              ,colsample_bytree=col_sample_by_tree
+                                              #, min_child_weight=min_child_weight
+                            ),
                             with_pca_components=PCA())
     hyper_parameter_test_pipe = vector_dict[f'logit_model model using {x_numeric_df.columns} including PCA'][2]
     hyper_parameter_ranges = dict()
@@ -815,23 +832,25 @@ def find_pipe_with_best_hyper_parameters_grid_search_cross_validation(x_numeric_
             hyper_parameter_ranges[f"{key}__learning_rate"] = l_rate
             hyper_parameter_ranges[f"{key}__subsample"] = sub_sample
             hyper_parameter_ranges[f"{key}__colsample_bytree"] = col_sample_by_tree
-            hyper_parameter_ranges[f"{key}__min_child_weight"] = min_child_weight
+            #hyper_parameter_ranges[f"{key}__min_child_weight"] = min_child_weight
 
     print("hyper_parameter_ranges: ", hyper_parameter_ranges)
-    # GridSearchCV is a meta-estimator that performs cross-validated grid-search over a parameter grid.
-    # GridSearchCV implements a “fit” and a “score” method. It also implements “score_samples”, “predict”,
-    # “predict_proba”, “decision_function”, “transform” and “inverse_transform”
-    # if they are implemented in the estimator used.
-    # The parameters of the estimator used to apply these methods are optimized by cross-validated grid-search
-    # over a parameter grid.
-    gs_cross_validation = GridSearchCV(hyper_parameter_test_pipe, hyper_parameter_ranges, cv=cross_validation_folds,
-                                       n_jobs=cpu_cores)
+    # RandomizedSearchCV
+    scoring = {'AUC': 'roc_auc', 'Accuracy': 'accuracy', 'F1': 'f1', 'Precision': 'precision', 'Recall': 'recall'
+               , 'Neg_log_loss': 'neg_log_loss'}
+    refit_value = 'Neg_log_loss'
+    gs_cross_validation = RandomizedSearchCV(estimator=hyper_parameter_test_pipe,
+                                             param_distributions=hyper_parameter_ranges,
+                                             n_iter=search_iterations,
+                                             scoring=scoring,
+                                             n_jobs=cpu_cores,
+                                             cv=cross_validation_folds,
+                                             verbose=3,
+                                             random_state=42,
+                                             refit=refit_value)
     gs_cross_validation.fit(x_numeric_df, y_data_labels)
     return gs_cross_validation, is_imbalance_detected, [x_numeric_df, y_data_labels,
                                                         gs_cross_validation.best_estimator_]
-
-
-
 
 
 # python main entry
@@ -876,14 +895,16 @@ if __name__ == '__main__':
 
     # imbalanced, class_data, inverse_of_regularization_strength=1.0,kernel_type='rbf', gamma='scale'
     # Get Logistic Regression model with more iterations as opposed to default 100
-    logit_model = get_xgboost_model(imbalance_detected, class_data=Y_Data,
-                            n_estimators=gs_cross_validation_inst.best_params_['xgbclassifier__n_estimators'],
-                            max_depth=gs_cross_validation_inst.best_params_['xgbclassifier__max_depth'],
-                            learning_rate=gs_cross_validation_inst.best_params_['xgbclassifier__learning_rate'],
-                            subsample=gs_cross_validation_inst.best_params_['xgbclassifier__subsample'],
-                            colsample_bytree=gs_cross_validation_inst.best_params_['xgbclassifier__colsample_bytree'],
-                            min_child_weight=gs_cross_validation_inst.best_params_['xgbclassifier__min_child_weight'])
-
+    logit_model = get_xgboost_model(imbalance_detected, class_labels=Y_Data,
+                                    n_estimators=gs_cross_validation_inst.best_params_['xgbclassifier__n_estimators'],
+                                    max_depth=gs_cross_validation_inst.best_params_['xgbclassifier__max_depth'],
+                                    learning_rate=gs_cross_validation_inst.best_params_['xgbclassifier__learning_rate']
+                                    ,subsample=gs_cross_validation_inst.best_params_['xgbclassifier__subsample']
+                                    ,colsample_bytree=gs_cross_validation_inst.best_params_[
+                                        'xgbclassifier__colsample_bytree']
+                                    #,min_child_weight=gs_cross_validation_inst.best_params_[
+                                    #    'xgbclassifier__min_child_weight']
+                                    )
     top_range = 56
     spec_column, score_column = select_k_best_features(numeric_df, top_range).values.T  # transpose the values
 
